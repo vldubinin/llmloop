@@ -81,7 +81,6 @@ public class TestController {
                     "5.  It is **STRICTLY FORBIDDEN** to add any conversational text, explanations, preambles (e.g., \"Here is the JSON you requested:\"), or any characters outside the JSON array.\n" +
                     "6.  Your entire response must always start with `[` and end with `]`.";
 
-    // (НОВИЙ) Агент 2: Оцінка Якості Концепцій
     private static final String SYSTEM_PROMPT_CONCEPT_EDUCATION_QUALITY_ESTIMATOR =
             "You are an **uncompromising and pedantic** expert in educational methodologies and curriculum design, acting as a **ruthless** quality assurance validator.\n" +
                     "\n" +
@@ -195,33 +194,6 @@ public class TestController {
                     "* **CRITICAL:** The `sourceContext` field in the output JSON **must contain the original `conceptSummary` string** that the Q/A pair was based on.\n" +
                     "* Do not include any text outside the JSON array.";
 
-    private static final String SYSTEM_PROMPT_QUESTION_ANSWER_QUALITY_ESTIMATOR =
-            """
-                    You are a Quality Assurance (QA) expert for educational content.
-                    
-                    Your Task: Evaluate the quality of Question/Answer (Q/A) pairs that were generated from a source scientific statement.
-                    
-                    Core Principle: The generation goal for the Q/A pairs was maximum conciseness. Your evaluation must strictly enforce this requirement while also ensuring accuracy and clarity.
-                    
-                    Q/A Evaluation Criteria:
-                    
-                    1. Conciseness:
-                    * Is the question concise and clearly focused (without "fluff" or unnecessary wording)?
-                    * Is the answer maximally brief?
-                    * Does the answer use only 3-8 key words?
-                    * Are both (the question and answer) free of conversational "filler"?
-                    2. Accuracy:
-                    * Is the answer a factually correct response to the question?
-                    3. Coherence (Linkage):
-                    * Does the question directly, logically, and unambiguously lead to the answer?
-                    * Is the answer a direct and relevant response to that specific question?
-                    4. Source Relevance:
-                    * Does the Q/A pair capture the key and most important fact from the original source statement?
-                    * Does the Q/A pair invent information not present in the source?
-                    5. Clarity:
-                    * Are the question and answer clear and easy to understand, despite their brevity?
-                    """;
-
     private static final String SYSTEM_PROMPT_QUIZ_GENERATOR =
             "You are an expert in instructional design and psychometrics, specializing in creating advanced, \"sentence-building\" quiz formats.\n" +
                     "\n" +
@@ -244,32 +216,13 @@ public class TestController {
                     "    * **Crucial Rule:** Distractors must be contextually relevant (from the same subject area as the `fullSourceText`) and have the same grammatical format as the `answer_components` they might replace.\n" +
                     "    * *Example Strategy:* Find terms in the `fullSourceText` that are related to the answer but incorrect in this specific context (e.g., if the answer mentions \"ALU,\" find other components mentioned in the text like \"System Bus\" or \"Clock Generator\" to use as distractors).\n" +
                     "\n" +
+                    "4.  **Move sourceContext from Q/A pair to result (`sourceContext`):**\n" +
+                    "\n" +
                     "### Output Format\n" +
                     "You must provide your response **exclusively in the format of a JSON array**.\n" +
                     "The array must contain one object for each Q/A pair provided in the input `qaList`.\n" +
-                    "Each object must have three keys: `question` (String), `answer_components` (String array), and `options_pool` (String array).\n" +
+                    "Each object must have three keys: `question` (String), `answer_components` (String array), `options_pool` (String array), and `sourceContext` (String).\n" +
                     "Do not include any text outside the JSON array.";
-
-    private static final String SYSTEM_PROMPT_QUIZ_DESTRUCTOR_QUALITY_ESTIMATOR =
-            """
-                           You are an expert in cognitive psychology and test design.
-                    
-                            Your Task: Evaluate the quality of a "constructor quiz," focusing entirely on the options_pool.
-                    
-                            Core Principle of Evaluation: The quality of the options_pool is measured by its ability to create plausible but false paths. Your evaluation must be based on a hierarchy of criteria.
-                    
-                            Evaluation Criteria (in descending order of importance):
-                    
-                            1. Distractor-Only Answer Plausibility (Highest Level):
-                            * Can a user construct a complete, logical, and syntactically correct alternative answer using only the distractors (words from options_pool not in answer_components)?
-                            * Score Ideal: Yes. For example, if the answer is "Licensing core designs," and distractors are "Manufacturing," "microcontrollers," "Sales," a user can build the false, plausible answer "Manufacturing microcontrollers."
-                            2. False Path Creation (High Level):
-                            * If a complete distractor-only answer is not possible, can a user mix distractors with parts of the correct answer to create another plausible but false answer? (E.g., "Sales of cores" = distractor + answer part).
-                            * Score Good: Yes, this is possible.
-                            3. Syntactic & Contextual Compatibility (Baseline Level):
-                            * Do the distractors share the same grammatical type (noun, adjective) and belong to the same subject domain as the answer components?
-                            * Score Poor: This is violated. Distractors are obviously irrelevant (e.g., "Apple") or grammatically incompatible (e.g., "To sell").
-                    """;
 
     @Autowired
     private ConceptExtractorService conceptExtractorService;
@@ -286,8 +239,9 @@ public class TestController {
 
     @GetMapping
     public ResponseEntity<List<Quiz>> test() throws IOException {
+
         String lectureText = readWithFilesReadString("C:\\Users\\PC\\Documents\\Java projects\\llmloop\\src\\main\\resources\\text2.txt");
-        /*List<Concept> concepts = conceptExtractorService.extractorConcepts(SYSTEM_CONCEPT_EXTRACTOR, lectureText);
+        List<Concept> concepts = conceptExtractorService.extract(SYSTEM_CONCEPT_EXTRACTOR, lectureText);
 
         concepts = improveService.improve(SYSTEM_PROMPT_CONCEPT_EDUCATION_QUALITY_ESTIMATOR,
                 concepts,
@@ -299,101 +253,15 @@ public class TestController {
                 concepts,
                 "ImproveData is the original draft of a concept summary. It was flagged by a prior quality check and must be rewritten based on the provided 'recommendationForImprovement'.",
                 Concept.class,
-                (currentItem, improvedResult) -> {
-                    return JsonUtil.toObject(improvedResult, Concept.class);
-                });
+                (currentItem, improvedResult) -> JsonUtil.toObject(improvedResult, Concept.class));
 
         List<QuestionAndAnswer> questionAndAnswers = questionAndAnswerExtractorService
                 .extract(concepts, lectureText, SYSTEM_PROMPT_QUESTION_ANSWER_GENERATOR);
-         */
-
-        List<QuestionAndAnswer> questionAndAnswers = DataMockUtil.getMockQuestionAndAnswer();
 
         List<Quiz> quizzes = quizExtractorService.extract(questionAndAnswers, lectureText, SYSTEM_PROMPT_QUIZ_GENERATOR);
+
         return ResponseEntity.ok(quizzes);
-
-            /*System.out.println(concepts);
-
-            report.setImprovedEducationConcepts(new ArrayList<>(concepts));
-
-            concepts = improve(String.class, concepts,
-                    lectureText,
-                    SYSTEM_PROMPT_CONCEPT_KNOWLEDGE_TRANSFER_QUALITY_ESTIMATOR,
-                    "ImproveData is one of the concepts from the text provided in the context that requires improvement.",
-                    vertexAI, 2);
-
-            report.setImprovedKnowledgeConcepts(new ArrayList<>(concepts));
-
-            List<QuestionAndAnswer> qaa = prepareQuestionsAndAnswers(concepts, lectureText, vertexAI);
-            report.setQuestionAndAnswers(new ArrayList<>(qaa));
-
-            qaa = improve(QuestionAndAnswer.class, qaa,
-                    lectureText,
-                    SYSTEM_PROMPT_QUESTION_ANSWER_QUALITY_ESTIMATOR,
-                    "ImproveData is question and answer in JSON format from the text provided in the context that requires improvement.",
-                    vertexAI, 2);
-
-            report.setImprovedQuestionAndAnswers(new ArrayList<>(qaa));
-
-            List<Quiz> quizzes = prepareQuiz(qaa, lectureText, vertexAI);
-            report.setQuizzes(new ArrayList<>(quizzes));
-
-            quizzes = improve(Quiz.class, quizzes,
-                    lectureText,
-                    SYSTEM_PROMPT_QUIZ_DESTRUCTOR_QUALITY_ESTIMATOR,
-                    "Evaluate the quality of the distractors in the options_pool for the following quiz items, based on following data:\n",
-                    vertexAI, 2);
-            report.setImprovedQuizzes(new ArrayList<>(quizzes));
-*/
-        //return ResponseEntity.ok(report);
-
     }
-
-
-    private List<Quiz> prepareQuiz(List<QuestionAndAnswer> pairs, String lectureText, VertexAI vertexAI) throws IOException {
-        Content systemInstruction = ContentMaker.fromMultiModalData(SYSTEM_PROMPT_QUIZ_GENERATOR);
-        GenerativeModel model = new GenerativeModel(modelName, vertexAI).withSystemInstruction(systemInstruction);
-
-        StringBuilder userPrompt = new StringBuilder("Process the following data:\n");
-        userPrompt.append("source_context: ").append(lectureText).append("\n");
-        userPrompt.append("qa_pair: ").append(JsonUtil.toJson(pairs)).append("\n");
-
-        GenerateContentResponse response = model.generateContent(userPrompt.toString());
-        String result = ResponseHandler.getText(response);
-        return JsonUtil.toObject(result, new TypeReference<List<Quiz>>() {
-        });
-    }
-
-
-    private List<QuestionAndAnswer> prepareQuestionsAndAnswers(List<String> keyConcepts, String lectureText, VertexAI vertexAI) throws IOException {
-        Content systemInstruction = ContentMaker.fromMultiModalData(SYSTEM_PROMPT_QUESTION_ANSWER_GENERATOR);
-        GenerativeModel model = new GenerativeModel(modelName, vertexAI).withSystemInstruction(systemInstruction);
-
-        StringBuilder userPrompt = new StringBuilder("Process the following set of statements:\n");
-        for (int i = 0; i < keyConcepts.size(); i++) {
-            userPrompt.append(i + 1).append(". ").append(keyConcepts.get(i)).append("\n");
-        }
-        GenerateContentResponse response = model.generateContent(userPrompt.toString());
-        String result = ResponseHandler.getText(response);
-        return JsonUtil.toObject(result, new TypeReference<List<QuestionAndAnswer>>() {
-        });
-    }
-
-
-    private List<String> prepareConcepts(String lectureText, VertexAI vertexAI) throws IOException {
-        String generatorUserPrompt = "Lecture Text:\n" + lectureText;
-        String conceptsResponse = callGemini(vertexAI, modelName, SYSTEM_CONCEPT_EXTRACTOR, generatorUserPrompt);
-        return Arrays.asList(conceptsResponse.split("\n"));
-    }
-
-    private static String callGemini(VertexAI vertexAi, String modelName, String systemPrompt, String userPrompt) throws IOException {
-        Content systemInstruction = ContentMaker.fromMultiModalData(systemPrompt);
-        GenerativeModel model = new GenerativeModel(modelName, vertexAi)
-                .withSystemInstruction(systemInstruction);
-        GenerateContentResponse response = model.generateContent(userPrompt);
-        return ResponseHandler.getText(response);
-    }
-
 
     public static String readWithFilesReadString(String fileName) throws IOException {
         Path path = Paths.get(fileName);
