@@ -1,12 +1,5 @@
 package com.khai.llmloop.llmloop;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.cloud.vertexai.VertexAI;
-import com.google.cloud.vertexai.api.Content;
-import com.google.cloud.vertexai.api.GenerateContentResponse;
-import com.google.cloud.vertexai.generativeai.ContentMaker;
-import com.google.cloud.vertexai.generativeai.GenerativeModel;
-import com.google.cloud.vertexai.generativeai.ResponseHandler;
 import com.khai.llmloop.llmloop.entity.Concept;
 import com.khai.llmloop.llmloop.entity.QuestionAndAnswer;
 import com.khai.llmloop.llmloop.entity.Quiz;
@@ -28,7 +21,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.List;
 
 @RestController
@@ -224,6 +216,118 @@ public class TestController {
                     "Each object must have three keys: `question` (String), `answer_components` (String array), `options_pool` (String array), and `sourceContext` (String).\n" +
                     "Do not include any text outside the JSON array.";
 
+    private static final String SYSTEM_PROMPT_QA_QUALITY_ESTIMATOR =
+            "You are an **uncompromising and pedantic** expert in pedagogical design and educational assessment, acting as a **ruthless** quality assurance validator for Question/Answer pairs.\n" +
+                    "\n" +
+                    "### Your Task\n" +
+                    "\n" +
+                    "Your task is to evaluate **each object** in the input array. For **each** Q/A pair, you must:\n" +
+                    "1.  Conduct an **internal** analysis based on the 4 strict criteria below. The `sourceContext` (which is the original `conceptSummary`) is the ground truth for relevance and scope.\n" +
+                    "2.  Derive a **single** composite `score`.\n" +
+                    "3.  Provide **one** key `recommendationForImprovement`.\n" +
+                    "\n" +
+                    "### Core Judging Philosophy\n" +
+                    "**Your default assumption must be critical. Your goal is to find pedagogical flaws.**\n" +
+                    "* **A score of 5 is rare** and reserved *only* for flawless Q/A pairs.\n" +
+                    "* **Prioritize penalizing Q/A misalignment (Crit 3).** A pair with a great question and a great answer that don't perfectly match is a *failure*.\n" +
+                    "* **Penalize simple 'What is...' questions.** The original instruction (`SYSTEM_PROMPT_QUESTION_ANSWER_GENERATOR`) demanded 'Why' or 'How'. A failure to meet this is a major flaw (Crit 1).\n" +
+                    "\n" +
+                    "### Input Data\n" +
+                    "\n" +
+                    "You will receive a JSON array of objects in the following format:\n" +
+                    "`[{int id, String question, String answer, String sourceContext}]`\n" +
+                    "* `id`: The unique identifier.\n" +
+                    "* `question`: The question to be evaluated.\n" +
+                    "* `answer`: The answer to be evaluated.\n" +
+                    "* `sourceContext`: The original `conceptSummary` string that the Q/A pair was based on.\n" +
+                    "\n" +
+                    "### Evaluation Logic (Internal Criteria)\n" +
+                    "\n" +
+                    "1.  **Question Quality (Depth & Clarity):**\n" +
+                    "    * Does the question test higher-order thinking (Why, How, Explain the mechanism) as instructed? Or is it a simple factual recall (What, When, Who)?\n" +
+                    "    * Is the question clear, unambiguous, and grammatically correct?\n" +
+                    "\n" +
+                    "2.  **Answer Quality (Completeness & Accuracy):**\n" +
+                    "    * Is the answer factually correct and comprehensive, fully responding to the question's depth?\n" +
+                    "    * Is the answer self-contained and easy to understand for someone who has the base knowledge?\n" +
+                    "\n" +
+                    "3.  **Q/A Alignment (The Most Critical Criterion):**\n" +
+                    "    * Does the `answer` *perfectly and directly* answer the *specific* `question` asked?\n" +
+                    "    * (Common failure: The question asks 'Why...', but the answer explains 'What...' or 'How...'.)\n" +
+                    "\n" +
+                    "4.  **Contextual Relevance & Scope:**\n" +
+                    "    * Is the *entire* Q/A pair tightly focused on the core idea presented in the `sourceContext` (`conceptSummary`)?\n" +
+                    "    * Does the Q/A pair improperly introduce new concepts not found in the `sourceContext`?\n" +
+                    "\n" +
+                    "### Output Field Calculation & Format\n" +
+                    "\n" +
+                    "Follow the standard output format based on `AgentEstimator`.\n" +
+                    "* `id`: Must match the input `id`.\n" +
+                    "* `score`: (int) Arithmetic mean of the 4 criteria, rounded. **PUNITIVE RULE:** If Crit 3 (Alignment) or Crit 1 (Depth) is 1 or 2, the final `score` **cannot be higher than 3**.\n" +
+                    "* `recommendationForImprovement`: (String) The single most actionable advice, focusing on the lowest-scoring criterion.\n" +
+                    "\n" +
+                    "**Your response MUST be exclusively a JSON array.**";
+
+    public static final String SYSTEM_PROMPT_QUIZ_QUALITY_ESTIMATOR =
+            "You are an **uncompromising expert in psychometrics and test design**, acting as a **final, ruthless quality assurance gatekeeper** for 'sentence-building' quiz items.\n" +
+                    "\n" +
+                    "### Your Task\n" +
+                    "\n" +
+                    "Your task is to evaluate **each quiz object** in the input array for **both technical solvability and pedagogical quality.**\n" +
+                    "\n" +
+                    "For **each** quiz object, you must:\n" +
+                    "1.  Conduct an **internal** analysis based on the 4 strict criteria below.\n" +
+                    "2.  Derive a **single** composite `score`.\n" +
+                    "3.  Provide **one** key `recommendationForImprovement`.\n" +
+                    "\n" +
+                    "### Core Judging Philosophy\n" +
+                    "**Your default assumption must be critical. Your goal is to find technical flaws and weak pedagogy.**\n" +
+                    "* **A score of 5 is rare** and reserved *only* for flawless quiz items.\n" +
+                    "* **Technical flaws are critical.** A pedagogically brilliant quiz that is technically unsolvable is a 100% failure.\n" +
+                    "* **Distractor quality is key.** A quiz with obvious, irrelevant, or grammatically incorrect distractors is a low-quality quiz and must be penalized.\n" +
+                    "\n" +
+                    "### Input Data\n" +
+                    "\n" +
+                    "You will receive a JSON array of objects in the following format:\n" +
+                    "`[{int id, String question, String[] answer_components, String[] options_pool, String sourceContext}]`\n" +
+                    "* `id`: The unique identifier.\n" +
+                    "* `question`: The instruction for the student (e.g., \"Зберіть твердження...\").\n" +
+                    "* `answer_components`: The array of strings that, when combined *in order*, form the correct answer.\n" +
+                    "* `options_pool`: The array of *all* strings (correct components + distractors) shown to the student.\n" +
+                    "* `sourceContext`: The original concept summary (for thematic reference).\n" +
+                    "\n" +
+                    "### Evaluation Logic (Internal Criteria)\n" +
+                    "\n" +
+                    "1.  **Technical Validity (Solvability):** (CRITICAL)\n" +
+                    "    * Does the `options_pool` **contain every single element** from the `answer_components` array, with exact string matching?\n" +
+                    "    * Does the `options_pool` **also** contain **at least one** distractor (an element NOT in `answer_components`)?\n" +
+                    "    * (If *either* of these fails, this criterion is a 1.)\n" +
+                    "\n" +
+                    "2.  **Deconstruction Quality (`answer_components`):**\n" +
+                    "    * When joined in order, do the `answer_components` form a **perfectly grammatical, logical, and complete** sentence?\n" +
+                    "    * Does this sentence accurately reflect the `sourceContext`?\n" +
+                    "    * Are the \"breaks\" between components logical, or are they awkward?\n" +
+                    "\n" +
+                    "3.  **Distractor Quality (Plausibility & Validity):**\n" +
+                    "    * Are the distractors (elements in `options_pool` but not in `answer_components`) **plausible**?\n" +
+                    "    * **Plausible means:** Thematically relevant (from `sourceContext` or similar) AND grammatically parallel to the components they might replace.\n" +
+                    "    * Are the distractors **clearly incorrect**? (i.e., they don't create an alternative correct answer or introduce ambiguity).\n" +
+                    "    * Are there *enough* distractors (e.g., at least 2-3)?\n" +
+                    "\n" +
+                    "4.  **Instruction Clarity (`question`):**\n" +
+                    "    * Is the `question` (the instruction) clear, concise, and unambiguous for a student?\n" +
+                    "\n" +
+                    "### Output Field Calculation & Format\n" +
+                    "\n" +
+                    "Follow the standard output format based on `AgentEstimator`.\n" +
+                    "* `id`: Must match the input `id`.\n" +
+                    "* `score`: (int) Arithmetic mean of the 4 criteria, rounded.\n" +
+                    "    * **PUNITIVE RULE 1:** If **Criterion 1 (Solvability)** is rated **1**, the final `score` **MUST be 1**, regardless of other criteria.\n" +
+                    "    * **PUNITIVE RULE 2:** If **Criterion 3 (Distractor Quality)** is rated **1 or 2**, the final `score` **cannot be higher than 3**.\n" +
+                    "* `recommendationForImprovement`: (String) The single most actionable advice. **Be specific:** (e.g., \"The options_pool is missing the required answer_component '...'\", or \"The distractor '...' is grammatically incorrect and implausible.\")\n" +
+                    "\n" +
+                    "**Your response MUST be exclusively a JSON array.**";
+
     @Autowired
     private ConceptExtractorService conceptExtractorService;
 
@@ -239,7 +343,6 @@ public class TestController {
 
     @GetMapping
     public ResponseEntity<List<Quiz>> test() throws IOException {
-
         String lectureText = readWithFilesReadString("C:\\Users\\PC\\Documents\\Java projects\\llmloop\\src\\main\\resources\\text2.txt");
         List<Concept> concepts = conceptExtractorService.extract(SYSTEM_CONCEPT_EXTRACTOR, lectureText);
 
@@ -249,7 +352,7 @@ public class TestController {
                 Concept.class,
                 (currentItem, improvedResult) -> JsonUtil.toObject(improvedResult, Concept.class));
 
-         concepts = improveService.improve(SYSTEM_PROMPT_CONCEPT_KNOWLEDGE_TRANSFER_QUALITY_ESTIMATOR,
+        concepts = improveService.improve(SYSTEM_PROMPT_CONCEPT_KNOWLEDGE_TRANSFER_QUALITY_ESTIMATOR,
                 concepts,
                 "ImproveData is the original draft of a concept summary. It was flagged by a prior quality check and must be rewritten based on the provided 'recommendationForImprovement'.",
                 Concept.class,
@@ -258,7 +361,24 @@ public class TestController {
         List<QuestionAndAnswer> questionAndAnswers = questionAndAnswerExtractorService
                 .extract(concepts, lectureText, SYSTEM_PROMPT_QUESTION_ANSWER_GENERATOR);
 
-        List<Quiz> quizzes = quizExtractorService.extract(questionAndAnswers, lectureText, SYSTEM_PROMPT_QUIZ_GENERATOR);
+        questionAndAnswers = improveService.improve(
+                SYSTEM_PROMPT_QA_QUALITY_ESTIMATOR, // Новий промпт
+                questionAndAnswers,
+                "A pedagogical Question/Answer pair based on a core concept summary.", // Опис даних
+                QuestionAndAnswer.class,
+                (currentItem, improvedResult) -> JsonUtil.toObject(improvedResult, QuestionAndAnswer.class)
+        );
+
+        List<Quiz> quizzes = quizExtractorService
+                .extract(questionAndAnswers, lectureText, SYSTEM_PROMPT_QUIZ_GENERATOR);
+
+        quizzes = improveService.improve(
+                SYSTEM_PROMPT_QUIZ_QUALITY_ESTIMATOR, // Новий промпт
+                quizzes,
+                "A 'sentence-building' quiz item with answer components and a pool of distractor options.", // Опис даних
+                Quiz.class,
+                (currentItem, improvedResult) -> JsonUtil.toObject(improvedResult, Quiz.class)
+        );
 
         return ResponseEntity.ok(quizzes);
     }
