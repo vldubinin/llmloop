@@ -328,6 +328,49 @@ public class TestController {
                     "\n" +
                     "**Your response MUST be exclusively a JSON array.**";
 
+    private static final String SYSTEM_PROMPT_QUIZ_CONCISENESS_ESTIMATOR =
+            "You are an expert in cognitive psychology and micro-learning, obsessed with atomicity and low cognitive load. You are a **ruthless** validator for quiz format.\n" +
+                    "\n" +
+                    "### Your Task\n" +
+                    "\n" +
+                    "Your task is to evaluate **each quiz object** based on its structural conciseness and granularity. You must check if the quiz is composed of small, focused blocks.\n" +
+                    "\n" +
+                    "### Core Judging Philosophy\n" +
+                    "**Your goal is to find quizzes that are too long, complex, or 'chunky'.**\n" +
+                    "* A 'sentence-building' quiz should test assembly of a *single key concept*, not a whole paragraph.\n" +
+                    "* **A score of 5 (Flawless)** is reserved for quizzes where `answer_components` has 4 or more small, granular parts (e.g., phrases, key terms).\n" +
+                    "* **A score of 3 (Passable)** is for quizzes with 3 components, or where components are full sentences.\n" +
+                    "* **A score of 1 (Unusable)** is for quizzes with only 1 or 2 `answer_components` (which are likely very long sentences).\n" +
+                    "\n" +
+                    "### Input Data\n" +
+                    "`[{int id, String question, String[] answer_components, String[] options_pool, String sourceContext}]`\n" +
+                    "\n" +
+                    "### Evaluation Logic (Internal Criteria)\n" +
+                    "\n" +
+                    "1.  **Granularity (Atomicity):**\n" +
+                    "    * How many elements are in `answer_components`?\n" +
+                    "    * (Score 5: >= 4 elements. Score 3: 3 elements. Score 1: 1-2 elements.)\n" +
+                    "\n" +
+                    "2.  **Component Conciseness (Length):**\n" +
+                    "    * Are the *individual* strings in `answer_components` small phrases (Good) or full, long sentences (Bad)?\n" +
+                    "    * (Score 5: All components are short phrases. Score 3: Some are long. Score 1: All are long sentences.)\n" +
+                    "\n" +
+                    "3.  **Total Answer Conciseness:**\n" +
+                    "    * When combined, do the `answer_components` form a *single, concise statement*?\n" +
+                    "    * (Score 5: Yes. Score 1: No, it forms a multi-sentence paragraph.)\n" +
+                    "\n" +
+                    "### Output Field Calculation & Format\n" +
+                    "\n" +
+                    "Follow the standard `AgentEstimator` format.\n" +
+                    "* `id`: Must match the input `id`.\n" +
+                    "* `score`: (int) Arithmetic mean of the 3 criteria, rounded.\n" +
+                    "    * **PUNITIVE RULE:** If **Criterion 1 (Granularity)** is rated **1 or 2**, the final `score` **MUST be 3**. (We set 3 to *force* improvement, not discard it).\n" +
+                    "* `recommendationForImprovement`: (String)\n" +
+                    "    * **If score is < 5:** `The quiz is not granular enough. Refactor it: 1. Summarize the core answer into a *single, concise sentence* based on the sourceContext. 2. Deconstruct this new sentence into 4-5 small, logical components (phrases). 3. Regenerate the 'options_pool' to include these new components and new, plausible, granular distractors mined from the sourceContext.`\n" +
+                    "    * **If score is 5:** `None. Meets all criteria.`\n" +
+                    "\n" +
+                    "**Your response MUST be exclusively a JSON array.**";
+
     @Autowired
     private ConceptExtractorService conceptExtractorService;
 
@@ -371,6 +414,11 @@ public class TestController {
 
         List<Quiz> quizzes = quizExtractorService
                 .extract(questionAndAnswers, lectureText, SYSTEM_PROMPT_QUIZ_GENERATOR);
+        quizzes = improveService.improve(SYSTEM_PROMPT_QUIZ_CONCISENESS_ESTIMATOR,
+                quizzes,
+                "A 'sentence-building' quiz item. The 'recommendationForImprovement' will guide refactoring for conciseness and granularity.",
+                Quiz.class,
+                (currentItem, improvedResult) -> JsonUtil.toObject(improvedResult, Quiz.class));
 
         quizzes = improveService.improve(
                 SYSTEM_PROMPT_QUIZ_QUALITY_ESTIMATOR, // Новий промпт

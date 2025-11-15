@@ -17,8 +17,8 @@ import java.util.List;
 
 @Service
 public class ImproveService {
-    private static final int MAX_TRY_NUMBER = 1;
-    private static final int MIN_SCORE_FOR_ACCEPT = 5;
+    private static final int MAX_TRY_NUMBER = 2;
+    private static final int MIN_SCORE_FOR_ACCEPT = 4;
     private static final int MIN_SCORE_FOR_IMMPROVE = 3;
 
     @Value("${gemini.project.id}")
